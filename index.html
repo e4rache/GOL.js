@@ -1,0 +1,236 @@
+<!DOCTYPE HTML>
+<html lang="en">
+	<head>
+		<title>Conway's game of life / three.js / webgl </title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style type="text/css">
+			body {
+				background:#000;
+				padding:0;
+				margin:0;
+				font-weight: bold;
+				overflow:hidden;
+			}
+			#info {
+				position: absolute;
+				top: 10px; width: 100%;
+				color: #ffffff;
+				padding: 5px;
+				font-family: Monospace;
+				font-size: 13px;
+				text-align: center;
+				z-index:100;
+			}
+
+			a {
+				color: orange;
+				text-decoration: none;
+			}
+
+			a:hover {
+				color: #0080ff;
+			}
+
+		</style>
+	</head>
+
+	<body>
+		<div id="info">
+			Conway's game of life / <a href="http://github.com/mrdoob/three.js" target="_blank">three.js</a> - G to Randomize. - fly with WASD/RF/QE + mouse drag 
+		</div>
+
+		<script src="js/Three.js"></script>
+		<script src="js/CustomFlyControls.js"></script>
+		<script src="js/Stats.js"></script>
+		<script src="js/GOL.js"></script>
+
+		<script>
+
+			var container, stats;
+			var camera, scene, renderer;
+			var clock = new THREE.Clock();
+
+			var CUBE_SIZE = 50;
+			var MATRIX_SIZE = 50;
+			var stateMatrix = [];
+
+			var gol = new GOL.Engine(MATRIX_SIZE);
+
+			var object3DMatrix = [];
+			
+			var material = new THREE.MeshBasicMaterial( 
+					{ 
+						map: THREE.ImageUtils.loadTexture( 'textures/contour_01.jpg' ),
+						color: 0xffa700,
+					}
+				);
+
+			var	cubeGeometry = new THREE.CubeGeometry( CUBE_SIZE, CUBE_SIZE, CUBE_SIZE );
+			var composer;
+
+			initHtml();
+			initScene();
+			initObject3DMatrix();
+			
+			animate();
+
+			function initScene() {
+
+				scene = new THREE.Scene();
+
+				// camera
+				camera = new THREE.PerspectiveCamera( 90, window.innerWidth / window.innerHeight, 1, 15000 );
+				camera.position.x = 1300;
+				camera.position.z = 1000;
+				camera.position.y = 1500;
+				controls = new THREE.CustomFlyControls( camera, keydownCallback );
+				controls.movementSpeed = 250;
+				controls.domElement = container;
+				controls.rollSpeed = Math.PI / 6;
+				controls.autoForward = false;
+				controls.dragToLook = false;
+				
+				scene.add( camera );
+
+				// lights
+
+				var ambient = new THREE.AmbientLight( 0xffffff );
+				ambient.color.setHSV( 0.1, 0.5, 0.3 );
+				scene.add( ambient );
+
+				var dirLight = new THREE.DirectionalLight( 0xffffff, 0.125 );
+				dirLight.position.set( 0, -1, 0 ).normalize();
+				dirLight.color.setHSV( 0.1, 0.725, 0.9 );
+				scene.add( dirLight );
+
+				addLight( 0.55, 0.825, 0.99,  5000, 1000, -1000 );
+				addLight( 0.08, 0.825, 0.99,     0, 2500, -1000 );
+				addLight( 0.995, 0.025, 0.99, 5000, 5000,  1000 );
+
+				function addLight( h, s, v, x, y, z ) {
+					var light = new THREE.PointLight( 0xffffff, 1.5, 4500 );
+					light.position.set( x, y, z );
+					scene.add( light );
+					light.color.setHSV( h, s, v );
+				}
+
+				// renderer
+				renderer = new THREE.WebGLRenderer( { antialias: true, maxLights: 8, alpha: true } );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				
+				container.appendChild( renderer.domElement );
+
+				// stats
+
+				stats = new Stats();
+				stats.domElement.style.position = 'absolute';
+				stats.domElement.style.top = '0px';
+				stats.domElement.style.zIndex = 100;
+				container.appendChild( stats.domElement );
+
+				stats.domElement.children[ 0 ].children[ 0 ].style.color = "#aaa";
+				stats.domElement.children[ 0 ].style.background = "transparent";
+				stats.domElement.children[ 0 ].children[ 1 ].style.display = "none";
+
+				// events
+
+				window.addEventListener( 'resize', onWindowResize, false );
+				
+			}
+
+			function initHtml() {
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+			}
+
+			function onWindowResize( event ) {
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+			}
+
+			function initObject3DMatrix() {
+				for ( var i = 0 ; i < MATRIX_SIZE ; i++ ) {
+					object3DMatrix[i]={};
+					for ( var j = 0 ; j < MATRIX_SIZE ; j++ ) {
+						object3DMatrix[i][j] = createMeshForMatrixPos(i,j);
+						scene.add(object3DMatrix[i][j]);
+					}
+				}
+			}
+
+			function createMeshForMatrixPos(i,j) {
+				
+				var mesh = new THREE.Mesh( cubeGeometry, material );
+
+				/*
+					try different projection here.
+				*/
+				/* planar */
+				mesh.position.x = i * 50 ;
+				mesh.position.y = j * 50 ;
+				mesh.position.z = 0;
+				
+				return mesh;
+			}
+			
+			function forEachMatrixElement(callback) {
+				for ( var i = 0 ; i < MATRIX_SIZE ; i++ ) {
+					for ( var j = 0 ; j < MATRIX_SIZE ; j++ ) {
+						callback(i,j,gol.getState(i,j));
+					}
+				}
+			}
+
+			function updateGlScene() {
+				forEachMatrixElement(function(i,j,state){
+					scene.remove(object3DMatrix[i][j]);
+					if ( state == 1 ) { 
+						scene.add(object3DMatrix[i][j]);	
+					}
+				});
+			}
+
+			//
+
+			function animate() {
+				requestAnimationFrame( animate );
+				render();
+				stats.update();
+			}
+
+			function render() {
+				var delta = clock.getDelta();
+				tickGameOfLife(delta);
+				updateGlScene();
+				controls.update( delta );
+				renderer.render( scene, camera );
+			}
+
+			var tickPerSecond = 10;
+			var elapsed = 0;
+			function tickGameOfLife(delta) {
+				elapsed += delta;
+				if ( elapsed > (1.0/tickPerSecond) )  {
+					elapsed = 0;
+					gol.tick();
+				}
+			}
+
+			function keydownCallback(keyCode) {
+				switch( keyCode) {
+					//case 71: /*g*/ switchStates();
+					case 71: /*g*/ gol.randomizeStates(); break;
+					case 72: /*h*/ logCameraPosition(); break;
+				}
+			}
+
+			function logCameraPosition() {
+				console.log(" camera coords :  " + camera.position.x + " , " + camera.position.y + " , " + camera.position.z);
+			}
+
+		</script>
+
+	</body>
+</html>
